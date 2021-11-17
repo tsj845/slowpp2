@@ -1,4 +1,4 @@
-ASS, MAT, LOG, INT, STR, BOL, FLO, LST, DCT, PAR, DOT, SEP, SYM, SLF, OBJ, NUL = "ASS", "MAT", "LOG", "INT", "STR", "BOL", "FLO", "LST", "DCT", "PAR", "DOT", "SEP", "SYM", "SLF", "OBJ", "NUL"
+ASS, MAT, LOG, INT, STR, BOL, FLO, LST, DCT, PAR, DOT, SEP, SYM, SLF, OBJ, NUL, KWD, EQU = "ASS", "MAT", "LOG", "INT", "STR", "BOL", "FLO", "LST", "DCT", "PAR", "DOT", "SEP", "SYM", "SLF", "OBJ", "NUL", "KWD", "EQU"
 
 class Object ():
     def __init__ (self, type : str, value):
@@ -28,10 +28,10 @@ class String (Type):
         super().__init__("string", value)
         self.properties["length"] = len(self.value)
         self.methods.update({
-            ("split", ("self", SLF, "sep", STR, "maxsep=-1", INT), LST) : "python {return self.value.split(sep, maxsep)}",
-            ("rsplit", ("self", SLF, "sep", STR, "maxsep=-1", INT), LST) : "python {return self.value.rsplit(sep, maxsep)}",
-            ("indexOf", ("self", SLF, "item", STR), INT) : "python {try:\n\treturn self.value.index(item)\nexcept:\n\treturn -1}",
-            ("slice", ("self", SLF, "start=0", INT, "end=-1", INT), STR) : "python {return self.value[start:end]}"
+            "split" : ("self", SLF, "sep", STR, "maxsep=-1", INT, "ret", LST, "python {return self.value.split(sep, maxsep)}"),
+            "rsplit" : ("self", SLF, "sep", STR, "maxsep=-1", INT, "ret", LST, "python {return self.value.rsplit(sep, maxsep)}"),
+            "indexOf" : ("self", SLF, "item", STR, "ret", INT, "python {try:\n\treturn self.value.index(item)\nexcept:\n\treturn -1}"),
+            "slice" : ("self", SLF, "start=0", INT, "end=-1", INT, "ret", STR, "python {return self.value[start:end]}")
         })
     def __repr__ (self):
         return f"String(\"{self.value}\")"
@@ -40,14 +40,14 @@ class Int (Type):
     def __init__ (self, value : int):
         super().__init__("int", value)
         self.methods.update({
-            ("toString", ("self", SLF), STR) : "python {return str(self.value)}"
+            "toString" : ("self", SLF, "ret", STR, "python {return str(self.value)}")
         })
 
 class Float (Type):
     def __init__ (self, value : float):
         super().__init__("float", value)
         self.methods.update({
-            ("toString", ("self", SLF), STR) : "python {return str(self.value)}"
+            "toString" : ("self", SLF, "ret", STR, "python {return str(self.value)}")
         })
 
 class Bool (Type):
@@ -71,7 +71,7 @@ class Dict (Type):
             ("keys", ("self", SLF), LST, OBJ) : "python {return list(self.value.keys())}",
             ("values", ("self", SLF), LST, OBJ) : "python {return list(self.value.values())}",
             ("entries", ("self", SLF), LST, LST, OBJ) : "python {entries=list(self.value.entries())\nl=[]\nfor entry in entries:\n\tl.append(list(entry))\nreturn l}",
-            ("pop", ("self", SLF, "item", OBJ), OBJ) : "python {return self.value.pop(item)}"
+            "pop" : ("self", SLF, "item", OBJ, "ret", OBJ,  "python {return self.value.pop(item)}")
         })
 
 class Func (Object):
@@ -84,7 +84,7 @@ class Token ():
     def __init__ (self, type, value):
         self.type = type
         self.value = value
-    def equal (type, value):
+    def equal (self, type, value):
         return (self.type == type and self.value == value)
     def __repr__ (self):
         return f"({self.type}, \"{self.value}\")"
@@ -92,7 +92,10 @@ class Token ():
 class Interpreter ():
     def __init__ (self, filename="code"):
         self.lines = []
-        self.keywords = ("func", "if", "elif", "else", "for", "while", "in", "break", "continue", "python")
+        self.keywords = ("func", "if", "elif", "else", "for", "while", "in", "break", "continue", "python", "let", "const")
+        self.vars = {}
+        self.constants = {}
+        self.funcs = {}
         self._getData(filename)
         self.run()
     def _getData (self, filename : str):
@@ -174,6 +177,14 @@ class Interpreter ():
                         test = line[i:i+len(keyword)]
                         if test == keyword:
                             tokens.append(Token(KWD, test))
+                            if keyword == "python":
+                                if line[i + len(keyword)] == "{" or line[i + len(keyword):i + len(keyword) + 1] == " {":
+                                    test = line[i+len(keyword)+(1 if line[i + len(keyword)] != "{" else 0)]
+                                    while True:
+                                        t2 = test[:test.index("}")]
+                                        if t2.count("{") == t2.count("}"):
+                                            t2 = test[:test.index("}") + 1]
+                                            break
                             found = True
                             i += len(test)
                             break
@@ -198,17 +209,17 @@ class Interpreter ():
         return Token(NUL, None)
     def evaltokens (self, tokens):
         if type(tokens) == str:
-            tokens = self.tokenize(line)
+            tokens = self.tokenize(tokens)
         tind = 0
         while tind < len(tokens):
-            token = tokens[i]
+            token = tokens[tind]
             if token.type == KWD:
                 if token.value == "python":
-                    if tokens[i+1].type == "python":
-                        self.tokens[i] = self.doPython(tokens[i+1].value)
+                    if tokens[tind+1].type == "python":
+                        self.tokens[tind] = self.doPython(tokens[tind+1].value)
                     else:
-                        self.tokens[i] = self.pythonFunc(tokens[i:])
-                    self.tokens.pop(i+1)
+                        self.tokens[tind] = self.pythonFunc(tokens[tind:])
+                    self.tokens.pop(tind+1)
             tind += 1
                         
     def run (self):
