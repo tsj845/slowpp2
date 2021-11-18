@@ -102,7 +102,6 @@ class Interpreter ():
         f = open(filename+("" if filename.endswith(".spp") else ".spp"))
         data = f.read()
         f.close()
-        # data = self.breaklines(data)
         self.lines = data
     def breaklines (self, data):
         data = data.replace("\\n", "\n")
@@ -122,27 +121,17 @@ class Interpreter ():
             elif isstr:
                 line += "\n" + data.pop(i+1)
                 data[i] = line
-        # for i in range(len(data)):
-        #     data[i] = data[i].replace("\\n", "\n")
         return data
     def tokenize (self, line : str) -> list:
         # print("\\n".join(line.split("\n")))
-        # lines = self.breaklines(line)
-        # for i in range(len(lines)):
-        #     lines[i] = lines[i]+"\n"
         tokens = []
         i = 0
         while i < len(line):
-            # if i >= len(lines[0]):
-            #     print(lines, "l", end="\n\n")
-            #     if len(lines) == 1:
-            #         break
-            #     lines[0] = lines[0] + lines.pop(1)
-            #     print(lines, "l2", end="\n\n")
-            # else:
-            #     print(i)
             char = line[i]
-            if i < len(line)-1 and line[i:i+2] == "//":
+            if char == "\n" or char == ";":
+                i += 1
+                continue
+            elif i < len(line)-1 and line[i:i+2] == "//":
                 found = False
                 isstr = False
                 while i < len(line):
@@ -154,7 +143,6 @@ class Interpreter ():
                     i += 1
                 if not found:
                     break
-                # i += len(lines[0])-i
             elif char in "+-*/%":
                 if i < len(line)-1 and line[i+1] == "=":
                     tokens.append(Token(ASS, char+"="))
@@ -193,7 +181,6 @@ class Interpreter ():
                         found = True
                         break
                     ci += 1
-                # print(line[i:])
                 if not found:
                     raise Exception("unclosed string")
                 tokens.append(Token(STR, line[i+1:ci]))
@@ -221,24 +208,21 @@ class Interpreter ():
             else:
                 found = False
                 for keyword in self.keywords:
-                    # print("\\t".join("\\n".join(line[i:].split("\n")).split("\t")), lines, sep="\n\n")
-                    # print(i, line[i], len(line)-i, len(line), keyword, len(keyword))
                     if len(line)-i >= len(keyword):
                         test = line[i:i+len(keyword)]
-                        # print(test)
                         if test == keyword:
-                            # print(test)
                             found = True
                             tokens.append(Token(KWD, test))
                             if keyword == "flag":
-                                sec = line[i:line[i:].index("\n") if "\n" in line[i:] else len(line[i:])].split(" ")
+                                sec = line[i:(i+line[i:].index("\n")) if "\n" in line[i:] else i+len(line[i:])].split(" ")
                                 tokens.append(Token(CON, (sec[1], sec[2][:-1 if sec[2][-1] == "\n" else len(sec[2])])))
+                                i += len(" ".join(sec))
+                                break
                             if keyword == "python":
-                                # print(line[i+len(keyword)], line[i+len(keyword):i+len(keyword)+2], i, len(keyword), i+len(keyword), line)
                                 if line[i + len(keyword)] == "{" or line[i + len(keyword):i + len(keyword) + 2] == " {":
-                                    test = line[i+len(keyword)+(1 if line[i + len(keyword)] != "{" else 0):]
-                                    # print(test, "test")
-                                    t2 = test[1:]
+                                    tstart = i+len(keyword)+(1 if line[i + len(keyword)] != "{" else 0)
+                                    test = line[tstart:]
+                                    t2 = test[2:]
                                     i2 = 0
                                     depth = 1
                                     while i2 < len(t2):
@@ -249,20 +233,12 @@ class Interpreter ():
                                         if depth == 0:
                                             break
                                         i2 += 1
-                                    # print(t2, i2)
-                                    t2 = t2[:i2]
-                                    # print(t2, "t2", sep="\n")
+                                    t2 = t2[:i2-1]
                                     tokens.append(Token("python", t2))
-                                    i += i2
-                                # i += len(t2)
-                                print(line)
-                                # print(i, line[i:], "X")
+                                    i = tstart + i2 + 3
                                 break
                             i += len(keyword)
-                            # print(i)
-                            # i += 1
                             break
-                # return []
                 if found:
                     continue
                 ti = i
@@ -270,7 +246,11 @@ class Interpreter ():
                     if not line[ti].isalnum():
                         break
                     ti += 1
-                tokens.append(Token(REF, line[i:ti]))
+                if ti != i:
+                    tokens.append(Token(REF, line[i:ti]))
+                self.tokens = tokens
+                if ti == i:
+                    ti += 1
                 i = ti
                 continue
             i += 1
@@ -285,7 +265,6 @@ class Interpreter ():
         code[0] = "\t"+code[0]
         code = "\n\t".join(code)
         code = "def private ():\n"+code+"\nglobal f\nf = private"
-        # print(code)
         if "globals" in data:
             exec(code, data["globals"], data["locals"] if "locals" in data else data["globals"])
         else:
@@ -294,10 +273,17 @@ class Interpreter ():
         if type(result) == str:
             result = '"' + result + '"'
         return Token(NUL, None)
+    def getexp (self, tokens, start):
+        i = start
+        result = Token(NUL, None)
+        while i < len(tokens):
+            token = tokens[i]
+            i += 1
+        return result
     def evaltokens (self, tokens):
         if type(tokens) == str:
             tokens = self.tokenize(tokens)
-        print(tokens)
+        # print(tokens)
         tind = 0
         while tind < len(tokens):
             token = tokens[tind]
@@ -309,36 +295,27 @@ class Interpreter ():
                         tokens[tind] = self.pythonFunc(tokens[tind:])
                     tokens.pop(tind+1)
             elif token.type == CON:
-                print(token)
                 self.flags[token.value[0]] = {"on":True, "off":False, "switch":not self.flags[token.value[0]]}[token.value[1]]
+            elif token.type == ASS:
+                if token.value == "=":
+                    self.scopes[-1][self.tokens[i-1].value] = self.getexp(tokens, i)
+                else:
+                    tokens.insert(Token(MAT, token.value[0]), i+1)
+                    tokens.insert(Token(REF, tokens[i-1].value), i+2)
+                    tokens[i] = Token(ASS, "=")
+                    continue
             tind += 1
     def _printvars (self):
         scopes = self.scopes[1:]
-        for i in range(len(scopes)-1):
+        for i in range(len(scopes)):
             scope = scopes[i]
             print("global scope:" if i == 0 else f"local scope ({i}):")
             for key in scope.keys():
                 print(f"\t{key} : {scope[i][key]}")
     def run (self):
         exline = 0
-        # print(self.lines)
         self.evaltokens(self.lines)
-        print(self.flags)
         if self.flags["vars"]:
             self._printvars()
-        # while True:
-        #     if exline >= len(self.lines):
-        #         break
-        #     # code goes here
-        #     print(exline)
-        #     self.evaltokens(self.lines[exline])
-        #     exline += 1
 
 inter = Interpreter()
-
-# print(inter.tokenize(inter.lines[3]))
-
-# l = List([String("go"), String("back"), Int(10), String("lines"), String("if"), String("is_error"), String("is"), Bool("True")])
-# print(l)
-
-# print(inter.breaklines('h\n"g\\ng"\nh'))
