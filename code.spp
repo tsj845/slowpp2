@@ -1,3 +1,12 @@
-"code(ing)"
-is
-fun
+//"code(ing)"
+//is
+//fun
+python {
+    print({"x":"test"})
+    x = {"x":"y"}
+    print(x)
+}
+
+testing
+
+flag vars on
