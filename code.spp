@@ -7,6 +7,6 @@ python {
     print(x)
 }
 
-testing
+testing = "testing " * 2
 
 flag vars on

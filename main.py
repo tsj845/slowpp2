@@ -94,6 +94,7 @@ class Interpreter ():
         self.lines = []
         self.keywords = ("func", "if", "elif", "else", "for", "while", "in", "break", "continue", "python", "search", "switch", "return", "case", "default", "class", "global", "flag")
         self.flags = {"vars":False}
+        self.nonmod = (REF, NUL, INT, STR, PAR, DCT, LST, BOL, FLO, OBJ, KWD)
         # sets up variable scopes, top level scope is readonly constants and second scope is the program global scope, all other scopes are local scopes
         self.scopes = [{"true":Token(BOL, True), "false":Token(BOL, False), "void":Token(NUL, None)}, {}]
         self._getData(filename)
@@ -183,7 +184,7 @@ class Interpreter ():
                     ci += 1
                 if not found:
                     raise Exception("unclosed string")
-                tokens.append(Token(STR, line[i+1:ci]))
+                tokens.append(Token(STR, '"'+line[i+1:ci]+'"'))
                 i = ci
             elif char.isdigit():
                 fin = ""
@@ -204,7 +205,8 @@ class Interpreter ():
                         fin += "."
                         s += 1
                 i = s
-                tokens.append(Token(FLO if deciuse else INT, Float(float(fin)) if deciuse else Int(int(fin))))
+                tokens.append(Token(FLO if deciuse else INT, float(fin) if deciuse else int(fin)))
+                # tokens.append(Token(FLO if deciuse else INT, Float(float(fin)) if deciuse else Int(int(fin))))
             else:
                 found = False
                 for keyword in self.keywords:
@@ -273,12 +275,40 @@ class Interpreter ():
         if type(result) == str:
             result = '"' + result + '"'
         return Token(NUL, None)
+    def domod (self, base, op, mod):
+        isstr = False
+        if type(base.value) == str:
+            isstr = True
+            base.value = base.value[1:-1]
+        if type(mod.value) == str:
+            mod.value = mod.value[1:-1]
+        op = op.value
+        result = None
+        if op == "+":
+            result = base.value + mod.value
+        elif op == "-":
+            result = base.value - mod.value
+        elif op == "*":
+            result = base.value * mod.value
+        elif op == "/":
+            result = base.value / mod.value
+        elif op == "%":
+            result = base.value % mod.value
+        if isstr:
+            result = '"' + result + '"'
+        return Token(base.type, result)
     def getexp (self, tokens, start):
-        i = start
-        result = Token(NUL, None)
+        i = start+2
+        result = tokens[start+1]
         while i < len(tokens):
             token = tokens[i]
-            i += 1
+            if token.type in self.nonmod:
+                break
+            ret = self.domod(result, token, tokens[i+1])
+            if ret == None:
+                break
+            result = ret
+            i += 2
         return result
     def evaltokens (self, tokens):
         if type(tokens) == str:
@@ -298,10 +328,10 @@ class Interpreter ():
                 self.flags[token.value[0]] = {"on":True, "off":False, "switch":not self.flags[token.value[0]]}[token.value[1]]
             elif token.type == ASS:
                 if token.value == "=":
-                    self.scopes[-1][self.tokens[i-1].value] = self.getexp(tokens, i)
+                    self.scopes[-1][self.tokens[tind-1].value] = self.getexp(tokens, tind)
                 else:
                     tokens.insert(Token(MAT, token.value[0]), i+1)
-                    tokens.insert(Token(REF, tokens[i-1].value), i+2)
+                    tokens.insert(Token(REF, tokens[tind-1].value), i+2)
                     tokens[i] = Token(ASS, "=")
                     continue
             tind += 1
@@ -311,7 +341,7 @@ class Interpreter ():
             scope = scopes[i]
             print("global scope:" if i == 0 else f"local scope ({i}):")
             for key in scope.keys():
-                print(f"\t{key} : {scope[i][key]}")
+                print(f"\t{key} : {scope[key]}")
     def run (self):
         exline = 0
         self.evaltokens(self.lines)
