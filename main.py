@@ -206,7 +206,6 @@ class Interpreter ():
                         s += 1
                 i = s
                 tokens.append(Token(FLO if deciuse else INT, float(fin) if deciuse else int(fin)))
-                # tokens.append(Token(FLO if deciuse else INT, Float(float(fin)) if deciuse else Int(int(fin))))
             else:
                 found = False
                 for keyword in self.keywords:
@@ -324,10 +323,14 @@ class Interpreter ():
                     else:
                         tokens[tind] = self.pythonFunc(tokens[tind:])
                     tokens.pop(tind+1)
+                elif token.value == "func":
+                    pass
             elif token.type == CON:
                 self.flags[token.value[0]] = {"on":True, "off":False, "switch":not self.flags[token.value[0]]}[token.value[1]]
             elif token.type == ASS:
                 if token.value == "=":
+                    if self.tokens[tind-1].value in self.scopes[0].keys():
+                        raise NameError("cannot assign to constant value")
                     self.scopes[-1][self.tokens[tind-1].value] = self.getexp(tokens, tind)
                 else:
                     tokens.insert(Token(MAT, token.value[0]), i+1)
