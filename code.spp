@@ -9,4 +9,18 @@ python {
 
 testing = "testing " * 2
 
+mult = 2
+
 flag vars on
+
+test = "x"
+
+v = test + "y " * 2
+
+test = test + " 1"
+
+test += v
+
+func testf () {
+    break
+}
