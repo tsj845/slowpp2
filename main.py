@@ -10,24 +10,38 @@ class Token ():
         return f"({self.type}, \"{self.value}\")"
 
 class Namespace ():
-    def __init__ (self, value):
+    def __init__ (self, value, parent):
+        self.parent = parent
         self.value = value
         self.audit = False
+        self.zavls = (0)
+        self.auditvars = []
+        self.auditstate = 0
     def keys (self):
         return self.value.keys()
     def __getitem__ (self, key):
-        if self.audit:
+        if (self.audit and not self.parent.auditing and ((len(self.auditvars) == 0 and self.auditstate in self.zavls) or key in self.auditvars)):
             print(key, self.value[key], "NAMESPACE GET")
         return self.value[key]
     def __setitem__ (self, key, value):
         self.value[key] = value
-        if self.audit:
+        if (self.audit and not self.parent.auditing and ((len(self.auditvars) == 0 and self.auditstate in self.zavls) or key in self.auditvars)):
             print(key, value, "NAMESPACE SET")
 
 class NamespaceList ():
     def __init__ (self, consts):
-        self.scopes = [Namespace(consts), Namespace({})]
+        self.auditing = False
+        self.scopes = [Namespace(consts, self), Namespace({}, self)]
         self.scopes[1].audit = True
+    def audit_state (self, index, value):
+        if (index >= 0 and index < len(self.scopes)):
+            self.scopes[index].auditstate = value
+    def add_audit (self, index, vname):
+        if (index >= 0 and index < len(self.scopes) and vname not in self.scopes[index].auditvars):
+            self.scopes[index].auditvars.append(vname)
+    def remove_audit (self, index, vname):
+        if (index >= 0 and index < len(self.scopes) and vname in self.scopes[index].auditvars):
+            self.scopes[index].auditvars.pop(self.scopes[index].auditvars.index(vname))
     def __len__ (self):
         return len(self.scopes)
     def __getitem__ (self, ind):
@@ -64,15 +78,15 @@ class Interpreter ():
         isstr = False
         for i in range(len(data)):
             i = inlen-i
-            if i >= len(data):
+            if (i >= len(data)):
                 break
             line = data[i]
-            if line.count('"') % 2 != 0:
-                if isstr:
+            if (line.count('"') % 2 != 0):
+                if (isstr):
                     line = line + "\n" + data.pop(i+1)
                     data[i] = line
                 isstr = not isstr
-            elif isstr:
+            elif (isstr):
                 line += "\n" + data.pop(i+1)
                 data[i] = line
         return data
@@ -82,65 +96,65 @@ class Interpreter ():
         i = 0
         while i < len(line):
             char = line[i]
-            if char == "\n" or char == ";":
+            if (char == "\n" or char == ";"):
                 i += 1
                 continue
-            elif i < len(line)-1 and line[i:i+2] == "//":
+            elif (i < len(line)-1 and line[i:i+2] == "//"):
                 found = False
                 isstr = False
                 while i < len(line):
-                    if line[i] == '"' and line[i-1] != "\\":
+                    if (line[i] == '"' and line[i-1] != "\\"):
                         isstr = not isstr
-                    if line[i] == "\n" and not isstr:
+                    if (line[i] == "\n" and not isstr):
                         found = True
                         break
                     i += 1
-                if not found:
+                if (not found):
                     break
-            elif char in "+-*/%":
-                if i < len(line)-1 and line[i+1] == "=":
+            elif (char in "+-*/%"):
+                if (i < len(line)-1 and line[i+1] == "="):
                     tokens.append(Token(ASS, char+"="))
                     i += 2
                     continue
                 tokens.append(Token(MAT, char))
-            elif char == "=":
-                if i < len(line)-1 and line[i:i+1] == "==":
+            elif (char == "="):
+                if (i < len(line)-1 and line[i:i+1] == "=="):
                     tokens.append(Token(EQU, "=="))
                     i += 2
                     continue
                 tokens.append(Token(ASS, char))
-            elif char in "!&|^<>":
-                if i < len(line)-1 and line[i+1] == "=":
+            elif (char in "!&|^<>"):
+                if (i < len(line)-1 and line[i+1] == "="):
                     tokens.append(Token(EQU, char+"="))
                     i += 2
                     continue
                 tokens.append(Token(LOG, char))
-            elif char in "{}":
+            elif (char in "{}"):
                 tokens.append(Token(DCT, char))
-            elif char in "[]":
+            elif (char in "[]"):
                 tokens.append(Token(LST, char))
-            elif char in "()":
+            elif (char in "()"):
                 tokens.append(Token(PAR, char))
-            elif char == ".":
+            elif (char == "."):
                 tokens.append(Token(DOT, char))
-            elif char == ",":
+            elif (char == ","):
                 tokens.append(Token(SEP, char))
-            elif char in ":":
+            elif (char in ":"):
                 tokens.append(Token(SYM, char))
-            elif char == '"':
+            elif (char == '"'):
                 found = False
                 ci = i+1
                 while ci < len(line):
-                    if line[ci] == '"' and line[ci-1] != "\\":
+                    if (line[ci] == '"' and line[ci-1] != "\\"):
                         found = True
                         break
                     ci += 1
-                if not found:
+                if (not found):
                     # unclosed string
                     self.err(1)
                 tokens.append(Token(STR, '"'+line[i+1:ci]+'"'))
                 i = ci
-            elif char.isdigit():
+            elif (char.isdigit()):
                 fin = ""
                 s = i
                 deciuse = False
@@ -148,36 +162,36 @@ class Interpreter ():
                     c = line[s]
                     fin += c
                     s += 1
-                    if s >= len(line):
+                    if (s >= len(line)):
                         break
-                    if line[s] == ".":
-                        if deciuse:
+                    if (line[s] == "."):
+                        if (deciuse):
                             break
-                        if line[s+1] == ".":
+                        if (line[s+1] == "."):
                             break
-                        if line[s+1].isalpha():
+                        if (line[s+1].isalpha()):
                             break
                         deciuse = True
                         fin += "."
                         s += 1
-                    if s >= len(line):
+                    if (s >= len(line)):
                         break
                 i = s
                 tokens.append(Token(FLO if deciuse else INT, float(fin) if deciuse else int(fin)))
             else:
                 found = False
                 for keyword in self.keywords:
-                    if len(line)-i >= len(keyword):
+                    if (len(line)-i >= len(keyword)):
                         test = line[i:i+len(keyword)]
-                        if test == keyword:
+                        if (test == keyword):
                             found = True
                             tokens.append(Token(KWD, test))
-                            if keyword == "flag":
+                            if (keyword == "flag"):
                                 sec = line[i:(i+line[i:].index("\n")) if "\n" in line[i:] else i+len(line[i:])].split(" ")
                                 tokens.append(Token(CON, (sec[1], sec[2][:-1 if sec[2][-1] == "\n" else len(sec[2])])))
                                 i += len(" ".join(sec))
                                 break
-                            if keyword == "python":
+                            if (keyword == "python"):
                                 if line[i + len(keyword)] == "{" or line[i + len(keyword):i + len(keyword) + 2] == " {":
                                     tstart = i+len(keyword)+(1 if line[i + len(keyword)] != "{" else 0)
                                     test = line[tstart:]
@@ -185,11 +199,11 @@ class Interpreter ():
                                     i2 = 0
                                     depth = 1
                                     while i2 < len(t2):
-                                        if t2[i2] == "{":
+                                        if (t2[i2] == "{"):
                                             depth += 1
-                                        if t2[i2] == "}":
+                                        if (t2[i2] == "}"):
                                             depth -= 1
-                                        if depth == 0:
+                                        if (depth == 0):
                                             break
                                         i2 += 1
                                     t2 = t2[:i2-1]
@@ -198,17 +212,17 @@ class Interpreter ():
                                 break
                             i += len(keyword)
                             break
-                if found:
+                if (found):
                     continue
                 ti = i
                 while ti < len(line):
-                    if not line[ti].isalnum() and not line[ti] == "_":
+                    if (not line[ti].isalnum() and not line[ti] == "_"):
                         break
                     ti += 1
-                if ti != i:
+                if (ti != i):
                     tokens.append(Token(REF, line[i:ti]))
                 self.tokens = tokens
-                if ti == i:
+                if (ti == i):
                     ti += 1
                 i = ti
                 continue
@@ -224,65 +238,65 @@ class Interpreter ():
         code[0] = "\t"+code[0]
         code = "\n\t".join(code)
         code = "def private ():\n"+code+"\nglobal f\nf = private"
-        if "globals" in data:
+        if ("globals" in data):
             exec(code, data["globals"], data["locals"] if "locals" in data else data["globals"])
         else:
             exec(code)
         result = f()
-        if type(result) == str:
+        if (type(result) == str):
             result = '"' + result + '"'
         return Token(NUL, None)
     def deref (self, token):
         for i in range(len(self.scopes)):
             scope = self.scopes[-1-i]
-            if token.value in scope.keys():
+            if (token.value in scope.keys()):
                 return scope[token.value]
         self.err(2)
     def domod (self, base, op, mod):
         print(mod, "r")
-        if mod.type == REF:
+        if (mod.type == REF):
             mod = self.deref(mod)
         print(mod, "dr")
-        if base.type == REF:
+        if (base.type == REF):
             base = self.deref(base)
         isstr = False
         modstr = False
-        if base.type == STR:
+        if (base.type == STR):
             isstr = True
             base.value = base.value[1:-1]
-        if mod.type == STR:
+        if (mod.type == STR):
             modstr = True
             mod.value = mod.value[1:-1]
         op = op.value
         result = None
-        if op == "+":
+        if (op == "+"):
             print(base.value, "BASE", mod.value, "MOD")
             result = base.value + mod.value
             print(base.value, mod.value, result, "RESULTANT")
-        elif op == "-":
+        elif (op == "-"):
             result = base.value - mod.value
-        elif op == "*":
+        elif (op == "*"):
             result = base.value * mod.value
-        elif op == "/":
+        elif (op == "/"):
             result = base.value / mod.value
-        elif op == "%":
+        elif (op == "%"):
             result = base.value % mod.value
-        if isstr:
+        if (isstr):
             result = '"' + result + '"'
-        if modstr:
+        if (modstr):
             mod.value = '"' + mod.value + '"'
         return Token(base.type, result)
     def getexp (self, tokens, start):
         i = start+2
         result = tokens[start+1]
-        if result.type == REF:
+        if (result.type == REF):
             result = self.deref(result)
         while i < len(tokens):
             token = tokens[i]
-            if token.type in self.nonmod:
+            if (token.type in self.nonmod):
                 break
             ret = self.domod(result, token, tokens[i+1])
-            if ret == None:
+            if (ret == None):
                 break
             result = ret
             i += 2
@@ -296,14 +310,14 @@ class Interpreter ():
         result = None
         while i < len(tokens):
             token = tokens[i]
-            if token.type == PAR:
-                if token.value == "(":
+            if (token.type == PAR):
+                if (token.value == "("):
                     depth += 1
                 else:
                     depth -= 1
-                if depth == 0:
+                if (depth == 0):
                     break
-            elif token.type == SEP:
+            elif (token.type == SEP):
                 args.append(tuple(build))
                 build = []
             else:
@@ -313,12 +327,12 @@ class Interpreter ():
         i += 1
         while i < len(tokens):
             token = tokens[i]
-            if token.type == DCT:
-                if token.value == "{":
+            if (token.type == DCT):
+                if (token.value == "{"):
                     depth += 1
                 else:
                     depth -= 1
-                if depth == 0:
+                if (depth == 0):
                     break
             else:
                 ftoks.append(token)
@@ -327,40 +341,40 @@ class Interpreter ():
         print(result)
         return result, i
     def err (self, code):
-        if code == 0:
+        if (code == 0):
             raise NameError("cannot assign to constant value")
-        elif code == 1:
+        elif (code == 1):
             raise SyntaxError("unclosed string")
-        elif code == 2:
+        elif (code == 2):
             raise NameError("variable name not defined")
     def evaltokens (self, tokens):
-        if type(tokens) == str:
+        if (type(tokens) == str):
             tokens = self.tokenize(tokens)
         # print(tokens)
         tind = 0
         while tind < len(tokens):
             token = tokens[tind]
-            if token.type == KWD:
-                if token.value == "python":
-                    if tokens[tind+1].type == "python":
+            if (token.type == KWD):
+                if (token.value == "python"):
+                    if (tokens[tind+1].type == "python"):
                         tokens[tind] = self.doPython({"code":tokens[tind+1].value})
                     else:
                         tokens[tind] = self.pythonFunc(tokens[tind:])
                     tokens.pop(tind+1)
-                elif token.value == "func":
+                elif (token.value == "func"):
                     # print(token)
                     name = tokens[tind+1].value
-                    if name in self.scopes[0].keys():
+                    if (name in self.scopes[0].keys()):
                         # assignment to constant
                         self.err(0)
                     self.scopes[-1][name], tind = self.getfunc(tokens, tind)
-                elif token.value == "audit":
+                elif (token.value == "audit"):
                     self._printvars()
-            elif token.type == CON:
+            elif (token.type == CON):
                 self.flags[token.value[0]] = {"on":True, "off":False, "switch":not self.flags[token.value[0]]}[token.value[1]]
-            elif token.type == ASS:
-                if token.value == "=":
-                    if self.tokens[tind-1].value in self.scopes[0].keys():
+            elif (token.type == ASS):
+                if (token.value == "="):
+                    if (self.tokens[tind-1].value in self.scopes[0].keys()):
                         # assignment to constant
                         self.err(0)
                     self.scopes[-1][self.tokens[tind-1].value], tind = self.getexp(tokens, tind)
@@ -370,20 +384,22 @@ class Interpreter ():
                     tokens[tind] = Token(ASS, "=")
                     print(tokens[tind:])
                     continue
-            elif token.type == FUN:
+            elif (token.type == FUN):
                 pass
                 # self.runfun
             tind += 1
     def _printvars (self):
+        self._scopes.auditing = True
         scopes = self.scopes[1:]
         for i in range(len(scopes)):
             scope = scopes[i]
             print("global scope:" if i == 0 else f"local scope ({i}):")
             for key in scope.keys():
                 print(f"\t{key} : {scope[key]}")
+        self._scopes.auditing = False
     def run (self):
         self.evaltokens(self.lines)
-        if self.flags["vars"]:
+        if (self.flags["vars"]):
             self._printvars()
 
 inter = Interpreter()
