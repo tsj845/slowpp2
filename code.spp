@@ -14,9 +14,17 @@ mult = 2
 flag vars on
 flag vars off
 
+watch test
+
 test = "x" + "y"
 
 color audit \x1b[38;2;0;255;0m
+
+color output \x1b[38;2;0;180;255m
+
+test = test
+
+dump global
 
 audit test
 

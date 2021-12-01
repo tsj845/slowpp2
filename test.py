@@ -1,8 +1,12 @@
-def func ():
-    def f ():
-       print({"x":"test"})
-    # exec("def private():\n\tprint({'x':'test'})\nglobal f\nf = private")
-    print(locals())
-    f()
+import sys
 
-func()
+x = None
+
+def f ():
+    raise Exception(0)
+
+try:
+    f()
+except Exception:
+    x = sys.exc_info()
+    print(x)

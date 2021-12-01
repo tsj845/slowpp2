@@ -1,4 +1,5 @@
 import re
+import sys
 
 ASS, MAT, LOG, INT, STR, BOL, FLO, LST, DCT, PAR, DOT, SEP, SYM, SLF, OBJ, NUL, KWD, EQU, FUN, REF, CON = "ASS", "MAT", "LOG", "INT", "STR", "BOL", "FLO", "LST", "DCT", "PAR", "DOT", "SEP", "SYM", "SLF", "OBJ", "NUL", "KWD", "EQU", "FUN", "REF", "CON"
 
@@ -10,6 +11,10 @@ class Token ():
         return (self.type == type and self.value == value)
     def __repr__ (self):
         return f"({self.type}, \"{self.value}\")"
+    def __eq__ (self, comp):
+        if (isinstance(comp, Token)):
+            return comp.type == self.type and comp.value == self.value
+        return False
 
 class Namespace ():
     def __init__ (self, value, parent):
@@ -77,8 +82,9 @@ ansire = re.compile("\\\\x1b\[\d{2,2};\d{1,1};\d{1,3};\d{1,3};\d{1,3}m")
 
 class Interpreter ():
     def __init__ (self, filename="code"):
+        self.mec = 0
         self.lines = []
-        self.keywords = ("func", "if", "elif", "else", "for", "while", "in", "break", "continue", "python", "search", "switch", "return", "case", "default", "class", "global", "flag", "audit", "watch", "color")
+        self.keywords = ("func", "if", "elif", "else", "for", "while", "in", "break", "continue", "python", "search", "switch", "return", "case", "default", "class", "global", "flag", "audit", "watch", "color", "dump")
         self.flags = {"vars":False}
         self.nonmod = (REF, NUL, INT, STR, PAR, DCT, LST, BOL, FLO, OBJ, KWD)
         # sets up variable scopes, top level scope is readonly constants and second scope is the program global scope, all other scopes are local scopes
@@ -177,7 +183,7 @@ class Interpreter ():
                     ci += 1
                 if (not found):
                     # unclosed string
-                    self.err(1)
+                    raise Exception(2)
                 tokens.append(Token(STR, '"'+line[i+1:ci]+'"'))
                 i = ci
             elif (char.isdigit()):
@@ -244,13 +250,26 @@ class Interpreter ():
                                     v = line[i + len(keyword) + 1:(rest.index("\n")+i+len(keyword)+1) if "\n" in rest else len(line)]
                                     if (self.deref(v, check=True)):
                                         tokens.append(Token("audit", v))
+                                    else:
+                                        print(f"{self.colors.output}{v}{self.colors.reset}", len(v))
+                                    i += len(v) + 1
+                                i += len(keyword)
+                                break
+                            if (keyword == "dump"):
+                                if (len(line) > i + len(keyword) and line[i + len(keyword)] == " "):
+                                    rest = line[i + len(keyword) + 1:]
+                                    v = line[i + len(keyword) + 1:(rest.index("\n")+i+len(keyword)+1) if "\n" in rest else len(line)]
+                                    if (v in ("global", "local", "constant")):
+                                        tokens.append(Token("dump", v))
+                                    else:
+                                        print(f"{self.colors.output}{v}{self.colors.reset}", len(v))
                                     i += len(v) + 1
                                 i += len(keyword)
                                 break
                             if (keyword == "watch"):
                                 rest = line[i + len(keyword) + 1:]
                                 if ("\n" not in rest):
-                                    raise Exception("watch error")
+                                    raise Exception(3)
                                 end = rest.index("\n")+i+len(keyword)+1
                                 v = line[i + len(keyword) + 1:end]
                                 i = end
@@ -318,14 +337,13 @@ class Interpreter ():
                 if (token in scope.keys()):
                     return True
                 else:
-                    pass
-                    # print(scope.keys())
+                    print(scope.keys())
             return False
         for i in range(len(self.scopes)):
             scope = self.scopes[-1-i]
             if (token.value in scope.keys()):
                 return scope[token.value]
-        self.err(2)
+        raise Exception(3)
     def domod (self, base, op, mod):
         if (mod.type == REF):
             mod = self.deref(mod)
@@ -348,6 +366,8 @@ class Interpreter ():
         elif (op == "*"):
             result = base.value * mod.value
         elif (op == "/"):
+            if (mod.value == 0):
+                raise Exception(6)
             result = base.value / mod.value
         elif (op == "%"):
             result = base.value % mod.value
@@ -411,16 +431,27 @@ class Interpreter ():
             i += 1
         result = Token(FUN, (tuple(args), tuple(ftoks)))
         return result, i
+    def _perr (self, type, value):
+        print(f"{self.colors.error}{type}: {value}{self.colors.reset}")
     def err (self, code):
         if (code == 0):
-            raise NameError("cannot assign to constant value")
+            self._perr("UnkownError", "unkown error occured")
         elif (code == 1):
-            raise SyntaxError("unclosed string")
+            self._perr("ConstantAssignmentError", "cannot assign to constant value")
         elif (code == 2):
-            raise NameError("variable name not defined")
+            self._perr("UnclosedStringError", "unclosed string")
+        elif (code == 3):
+            self._perr("UndefinedNameError", "variable name not defined")
+        elif (code == 4):
+            self._perr("WatchError", "watch statement is not followed by more code")
+        elif (code == 5):
+            self._perr("OperationTypeError", "invalid type(s) for operation")
+        elif (code == 6):
+            self._perr("ZeroDivisionError", "cannot devide by zero")
     def evaltokens (self, tokens):
         if (type(tokens) == str):
             tokens = self.tokenize(tokens)
+        print(self.colors.output, tokens.index(Token(KWD, "color")), self.colors.reset)
         tind = 0
         while tind < len(tokens):
             token = tokens[tind]
@@ -435,9 +466,10 @@ class Interpreter ():
                     name = tokens[tind+1].value
                     if (name in self.scopes[0].keys()):
                         # assignment to constant
-                        self.err(0)
+                        raise Exception(1)
                     self.scopes[-1][name], tind = self.getfunc(tokens, tind)
                 elif (token.value == "audit"):
+                    print(tokens[tind:])
                     print(f"{self.colors.audit}AUDIT:{self.colors.reset}")
                     if (len(tokens) > tind+1 and tokens[tind+1].type == "audit"):
                         self._printvar(tokens[tind+1].value)
@@ -448,13 +480,16 @@ class Interpreter ():
                     # print(f"{self.colors.output}{tokens[tind+1].value}, {tokens[tind+2].value[1:]}{self.colors.reset}")
                     self.colors[tokens[tind+1].value] = tokens[tind+2].value
                     tind += 2
+                elif (token.value == "dump"):
+                    self._dump(tokens[tind+1].value)
+                    tind += 1
             elif (token.type == CON):
                 self.flags[token.value[0]] = {"on":True, "off":False, "switch":not self.flags[token.value[0]]}[token.value[1]]
             elif (token.type == ASS):
                 if (token.value == "="):
                     if (self.tokens[tind-1].value in self.scopes[0].keys()):
                         # assignment to constant
-                        self.err(0)
+                        raise Exception(1)
                     self.scopes[-1][self.tokens[tind-1].value], tind = self.getexp(tokens, tind)
                 else:
                     tokens.insert(tind+1, Token(MAT, token.value[0]))
@@ -465,6 +500,12 @@ class Interpreter ():
                 pass
                 # self.runfun
             tind += 1
+    def _dump (self, scope):
+        index = 1 if scope == "global" else len(self.scopes) - 1 if scope == "local" else 0
+        print(f"{self.colors.output}dumping {scope} scope:{self.colors.reset}")
+        scope = self.scopes[index]
+        for key in scope.keys():
+            print(f"{key} : {scope[key]}")
     def _printvar (self, vname):
         self._scopes.auditing = True
         scopes = self.scopes[1:]
@@ -484,8 +525,20 @@ class Interpreter ():
                 print(f"\t{key} : {scope[key]}")
         self._scopes.auditing = False
     def run (self):
-        self.evaltokens(self.lines)
+        self.mec = 6
+        errinfo = None
+        try:
+            self.evaltokens(self.lines)
+        except Exception:
+            info = sys.exc_info()
+            print(self.mec)
+            if (info[1].args[0] >= 0 and info[1].args[0] <= self.mec and info[0] == Exception):
+                errinfo = info[1].args[0]
+            else:
+                raise info[1]
         if (self.flags["vars"]):
             self._printvars()
+        if (errinfo != None):
+            self.err(errinfo)
 
 inter = Interpreter()
