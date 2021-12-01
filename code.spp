@@ -14,9 +14,11 @@ mult = 2
 flag vars on
 flag vars off
 
-test = "x"
+test = "x" + "y"
 
-audit
+color audit \x1b[38;2;0;255;0m
+
+audit test
 
 v = test + "y " * 2
 

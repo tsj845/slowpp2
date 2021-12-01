@@ -1,3 +1,5 @@
+import re
+
 ASS, MAT, LOG, INT, STR, BOL, FLO, LST, DCT, PAR, DOT, SEP, SYM, SLF, OBJ, NUL, KWD, EQU, FUN, REF, CON = "ASS", "MAT", "LOG", "INT", "STR", "BOL", "FLO", "LST", "DCT", "PAR", "DOT", "SEP", "SYM", "SLF", "OBJ", "NUL", "KWD", "EQU", "FUN", "REF", "CON"
 
 class Token ():
@@ -14,18 +16,17 @@ class Namespace ():
         self.parent = parent
         self.value = value
         self.audit = False
-        self.zavls = (0)
-        self.auditvars = []
+        self.zavls = (0,)
         self.auditstate = 0
     def keys (self):
         return self.value.keys()
     def __getitem__ (self, key):
-        if (self.audit and not self.parent.auditing and ((len(self.auditvars) == 0 and self.auditstate in self.zavls) or key in self.auditvars)):
+        if (self.audit and not self.parent.auditing and ((len(self.parent.auditvars) == 0 and self.auditstate in self.zavls) or key in self.parent.auditvars)):
             print(key, self.value[key], "NAMESPACE GET")
         return self.value[key]
     def __setitem__ (self, key, value):
         self.value[key] = value
-        if (self.audit and not self.parent.auditing and ((len(self.auditvars) == 0 and self.auditstate in self.zavls) or key in self.auditvars)):
+        if (self.audit and not self.parent.auditing and ((len(self.parent.auditvars) == 0 and self.auditstate in self.zavls) or key in self.parent.auditvars)):
             print(key, value, "NAMESPACE SET")
 
 class NamespaceList ():
@@ -33,15 +34,16 @@ class NamespaceList ():
         self.auditing = False
         self.scopes = [Namespace(consts, self), Namespace({}, self)]
         self.scopes[1].audit = True
+        self.auditvars = []
     def audit_state (self, index, value):
         if (index >= 0 and index < len(self.scopes)):
             self.scopes[index].auditstate = value
-    def add_audit (self, index, vname):
-        if (index >= 0 and index < len(self.scopes) and vname not in self.scopes[index].auditvars):
-            self.scopes[index].auditvars.append(vname)
-    def remove_audit (self, index, vname):
-        if (index >= 0 and index < len(self.scopes) and vname in self.scopes[index].auditvars):
-            self.scopes[index].auditvars.pop(self.scopes[index].auditvars.index(vname))
+    def add_audit (self, vname):
+        if (vname not in self.auditvars):
+            self.auditvars.append(vname)
+    def remove_audit (self, vname):
+        if (vname in self.auditvars):
+            self.auditvars.pop(self.auditvars.index(vname))
     def __len__ (self):
         return len(self.scopes)
     def __getitem__ (self, ind):
@@ -49,15 +51,40 @@ class NamespaceList ():
     def __setitem__ (self, ind, value):
         self.scopes[ind] = value
 
+class InterPalette ():
+    def __init__ (self):
+        self.reset = "\x1b[39m"
+        self.audit = "\x1b[38;2;200;100;0m"
+        self.error = "\x1b[38;2;255;0;0m"
+        self.warning = "\x1b[38;2;255;255;0m"
+        self.output = "\x1b[38;2;0;100;200m"
+        self.validcolornames = ("reset", "audit", "error", "warning", "output")
+    def has (self, attr):
+        return (attr in self.validcolornames)
+    def __setitem__ (self, key, value):
+        if (key == "reset"):
+            self.reset = value
+        elif (key == "audit"):
+            self.audit = value
+        elif (key == "error"):
+            self.error = value
+        elif (key == "warning"):
+            self.warning = value
+        elif (key == "output"):
+            self.output = value
+
+ansire = re.compile("\\\\x1b\[\d{2,2};\d{1,1};\d{1,3};\d{1,3};\d{1,3}m")
+
 class Interpreter ():
     def __init__ (self, filename="code"):
         self.lines = []
-        self.keywords = ("func", "if", "elif", "else", "for", "while", "in", "break", "continue", "python", "search", "switch", "return", "case", "default", "class", "global", "flag", "audit")
+        self.keywords = ("func", "if", "elif", "else", "for", "while", "in", "break", "continue", "python", "search", "switch", "return", "case", "default", "class", "global", "flag", "audit", "watch", "color")
         self.flags = {"vars":False}
         self.nonmod = (REF, NUL, INT, STR, PAR, DCT, LST, BOL, FLO, OBJ, KWD)
         # sets up variable scopes, top level scope is readonly constants and second scope is the program global scope, all other scopes are local scopes
         self._scopes = NamespaceList({"true":Token(BOL, True), "false":Token(BOL, False), "void":Token(NUL, None)})
-        # self._scopes = [{"true":Token(BOL, True), "false":Token(BOL, False), "void":Token(NUL, None)}, {}]
+        self._scopes.audit_state(1, 1)
+        self.colors = InterPalette()
         self._getData(filename)
         self.run()
     @property
@@ -91,7 +118,6 @@ class Interpreter ():
                 data[i] = line
         return data
     def tokenize (self, line : str) -> list:
-        # print("\\n".join(line.split("\n")))
         tokens = []
         i = 0
         while i < len(line):
@@ -191,8 +217,47 @@ class Interpreter ():
                                 tokens.append(Token(CON, (sec[1], sec[2][:-1 if sec[2][-1] == "\n" else len(sec[2])])))
                                 i += len(" ".join(sec))
                                 break
+                            if (keyword == "color"):
+                                rest = line[i + len(keyword) + 1:]
+                                v = line[i + len(keyword) + 1:(rest.index("\n")+i+len(keyword)+1) if "\n" in rest else len(line)]
+                                # print("\x1b[38;2;200;100;0mcolor kwd\x1b[39m", v)
+                                i += len(v) + len(keyword) + 1
+                                v = v.split(" ")
+                                v = v[:min(2, len(v))]
+                                if (len(v) < 2):
+                                    break
+                                if (self.colors.has(v[0])):
+                                    # print(v[1], ansire.fullmatch(v[1]), ansire.match(v[1]))
+                                    if (ansire.fullmatch(v[1])):
+                                        tokens.append(Token("color", v[0]))
+                                        tokens.append(Token("color", v[1].replace("\\x1b", "\x1b")))
+                                    else:
+                                        commoncolors = {"lime":"\x1b[38;2;0;255;0m","green":"\x1b[38;2;0;200;0m","orange":"\x1b[38;2;200;100;0m","yellow":"\x1b[38;2;255;255;0m","red":"\x1b[38;2;255;0;0m"}
+                                        if (v[1] not in commoncolors.keys()):
+                                            break
+                                        tokens.append(Token("color", v[0]))
+                                        tokens.append(Token("color", commoncolors[v[1]]))
+                                break
+                            if (keyword == "audit"):
+                                if (len(line) > i + len(keyword) and line[i + len(keyword)] == " "):
+                                    rest = line[i + len(keyword) + 1:]
+                                    v = line[i + len(keyword) + 1:(rest.index("\n")+i+len(keyword)+1) if "\n" in rest else len(line)]
+                                    if (self.deref(v, check=True)):
+                                        tokens.append(Token("audit", v))
+                                    i += len(v) + 1
+                                i += len(keyword)
+                                break
+                            if (keyword == "watch"):
+                                rest = line[i + len(keyword) + 1:]
+                                if ("\n" not in rest):
+                                    raise Exception("watch error")
+                                end = rest.index("\n")+i+len(keyword)+1
+                                v = line[i + len(keyword) + 1:end]
+                                i = end
+                                self._scopes.add_audit(v)
+                                break
                             if (keyword == "python"):
-                                if line[i + len(keyword)] == "{" or line[i + len(keyword):i + len(keyword) + 2] == " {":
+                                if (line[i + len(keyword)] == "{" or line[i + len(keyword):i + len(keyword) + 2] == " {"):
                                     tstart = i+len(keyword)+(1 if line[i + len(keyword)] != "{" else 0)
                                     test = line[tstart:]
                                     t2 = test[2:]
@@ -246,17 +311,24 @@ class Interpreter ():
         if (type(result) == str):
             result = '"' + result + '"'
         return Token(NUL, None)
-    def deref (self, token):
+    def deref (self, token, /, check=False):
+        if (check):
+            for i in range(len(self.scopes)):
+                scope = self.scopes[-1-i]
+                if (token in scope.keys()):
+                    return True
+                else:
+                    pass
+                    # print(scope.keys())
+            return False
         for i in range(len(self.scopes)):
             scope = self.scopes[-1-i]
             if (token.value in scope.keys()):
                 return scope[token.value]
         self.err(2)
     def domod (self, base, op, mod):
-        print(mod, "r")
         if (mod.type == REF):
             mod = self.deref(mod)
-        print(mod, "dr")
         if (base.type == REF):
             base = self.deref(base)
         isstr = False
@@ -270,9 +342,7 @@ class Interpreter ():
         op = op.value
         result = None
         if (op == "+"):
-            print(base.value, "BASE", mod.value, "MOD")
             result = base.value + mod.value
-            print(base.value, mod.value, result, "RESULTANT")
         elif (op == "-"):
             result = base.value - mod.value
         elif (op == "*"):
@@ -283,6 +353,7 @@ class Interpreter ():
             result = base.value % mod.value
         if (isstr):
             result = '"' + result + '"'
+            base.value = '"' + base.value + '"'
         if (modstr):
             mod.value = '"' + mod.value + '"'
         return Token(base.type, result)
@@ -300,6 +371,7 @@ class Interpreter ():
                 break
             result = ret
             i += 2
+        i -= 1
         return result, i
     def getfunc (self, tokens, start):
         i = start+2
@@ -338,7 +410,6 @@ class Interpreter ():
                 ftoks.append(token)
             i += 1
         result = Token(FUN, (tuple(args), tuple(ftoks)))
-        print(result)
         return result, i
     def err (self, code):
         if (code == 0):
@@ -350,7 +421,6 @@ class Interpreter ():
     def evaltokens (self, tokens):
         if (type(tokens) == str):
             tokens = self.tokenize(tokens)
-        # print(tokens)
         tind = 0
         while tind < len(tokens):
             token = tokens[tind]
@@ -362,14 +432,22 @@ class Interpreter ():
                         tokens[tind] = self.pythonFunc(tokens[tind:])
                     tokens.pop(tind+1)
                 elif (token.value == "func"):
-                    # print(token)
                     name = tokens[tind+1].value
                     if (name in self.scopes[0].keys()):
                         # assignment to constant
                         self.err(0)
                     self.scopes[-1][name], tind = self.getfunc(tokens, tind)
                 elif (token.value == "audit"):
-                    self._printvars()
+                    print(f"{self.colors.audit}AUDIT:{self.colors.reset}")
+                    if (len(tokens) > tind+1 and tokens[tind+1].type == "audit"):
+                        self._printvar(tokens[tind+1].value)
+                        tind += 1
+                    else:
+                        self._printvars()
+                elif (token.value == "color"):
+                    # print(f"{self.colors.output}{tokens[tind+1].value}, {tokens[tind+2].value[1:]}{self.colors.reset}")
+                    self.colors[tokens[tind+1].value] = tokens[tind+2].value
+                    tind += 2
             elif (token.type == CON):
                 self.flags[token.value[0]] = {"on":True, "off":False, "switch":not self.flags[token.value[0]]}[token.value[1]]
             elif (token.type == ASS):
@@ -382,12 +460,20 @@ class Interpreter ():
                     tokens.insert(tind+1, Token(MAT, token.value[0]))
                     tokens.insert(tind+1, Token(REF, tokens[tind-1].value))
                     tokens[tind] = Token(ASS, "=")
-                    print(tokens[tind:])
                     continue
             elif (token.type == FUN):
                 pass
                 # self.runfun
             tind += 1
+    def _printvar (self, vname):
+        self._scopes.auditing = True
+        scopes = self.scopes[1:]
+        for i in range(len(scopes)):
+            scope = scopes[i]
+            if (vname in scope.keys()):
+                print("globa scope:" if i == 0 else f"local scope ({i}):", end=" ")
+                print(f"{vname} = {scope[vname]}")
+        self._scopes.auditing = False
     def _printvars (self):
         self._scopes.auditing = True
         scopes = self.scopes[1:]
