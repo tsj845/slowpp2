@@ -4,7 +4,7 @@ import re
 import sys
 
 # token types
-ASS, MAT, LOG, INT, STR, BOL, FLO, LST, DCT, PAR, DOT, SEP, SYM, SLF, OBJ, NUL, KWD, EQU, FUN, REF, CON = "ASS", "MAT", "LOG", "INT", "STR", "BOL", "FLO", "LST", "DCT", "PAR", "DOT", "SEP", "SYM", "SLF", "OBJ", "NUL", "KWD", "EQU", "FUN", "REF", "CON"
+ASS, MAT, LOG, INT, STR, BOL, FLO, LST, DCT, PAR, DOT, SEP, SYM, SLF, OBJ, NUL, KWD, EQU, FUN, REF, CON, ERR = "ASS", "MAT", "LOG", "INT", "STR", "BOL", "FLO", "LST", "DCT", "PAR", "DOT", "SEP", "SYM", "SLF", "OBJ", "NUL", "KWD", "EQU", "FUN", "REF", "CON", "ERR"
 
 # stores token data
 class Token ():
@@ -42,6 +42,7 @@ class Token ():
             FUN : function token
             REF : reference token
             CON : config token
+            ERR : error token
         
         methods:
             equal (type : str, value : str) -> bool
@@ -103,8 +104,6 @@ class Namespace ():
         self.parent = parent
         # the variable map
         self.value = value
-        # if the scope should audit variable changes
-        self.audit = False
         # if all variables should be audited if no variables are explicitly audited
         self.zavls = (0,)
         # the current audit policy
@@ -118,7 +117,7 @@ class Namespace ():
     # gets an item
     def __getitem__ (self, key : str) -> Token:
         # checks if the get should be audited
-        if (self.audit and not self.parent.auditing and ((len(self.parent.auditvars) == 0 and self.auditstate in self.zavls) or (key in self.parent.auditvars and self.auditstate != 2) or (self.auditstate == 2 and key not in self.parent.auditvars))):
+        if (self.parent.audit and not self.parent.auditing and ((len(self.parent.auditvars) == 0 and self.auditstate in self.zavls) or (key in self.parent.auditvars and self.auditstate != 2) or (self.auditstate == 2 and key not in self.parent.auditvars))):
             # audits the get
             print(key, self.value[key], "NAMESPACE GET")
         # returns the value
@@ -128,7 +127,7 @@ class Namespace ():
         # sets the value
         self.value[key] = value
         # checks if the set should be audited
-        if (self.audit and not self.parent.auditing and ((len(self.parent.auditvars) == 0 and self.auditstate in self.zavls) or (key in self.parent.auditvars and self.auditstate != 2) or (self.auditstate == 2 and key not in self.parent.auditvars))):
+        if (self.parent.audit and not self.parent.auditing and ((len(self.parent.auditvars) == 0 and self.auditstate in self.zavls) or (key in self.parent.auditvars and self.auditstate != 2) or (self.auditstate == 2 and key not in self.parent.auditvars))):
             # audits the set
             print(key, value, "NAMESPACE SET")
 
@@ -160,10 +159,10 @@ class NamespaceList ():
         """
         # whether an audit is occuring
         self.auditing = False
+        # if child scopes should audit variable changes
+        self.audit = False
         # variable scopes
         self.scopes = [Namespace(consts, self), Namespace({}, self)]
-        # tells the global scope to audit variable changes
-        self.scopes[1].audit = True
         # variables that should be audited
         self.auditvars = []
     # sets audit policy for a scope
@@ -208,15 +207,7 @@ class InterPalette ():
         the palette is used to store what colors the system should use when displaying certain types of outputs
 
         properties:
-            reset : default color to return to after output
-
-            audit : color to use when auditing
-
-            error : color to use when displaying an error message
-
-            warning : color to use when displaying a warning message
-
-            output : color to use when displaying normal output
+            [system colors] : the colors for different type of system output
 
             validcolornames : tuple of valid system colors
         
@@ -226,6 +217,8 @@ class InterPalette ():
         """
         # when program resets to default color
         self.reset = "\x1b[39m"
+        # color for auditing header
+        self.audithead = "\x1b[38;2;200;100;0m"
         # color for auditing output
         self.audit = "\x1b[38;2;200;100;0m"
         # color for error output
@@ -235,7 +228,7 @@ class InterPalette ():
         # color for normal output
         self.output = "\x1b[38;2;0;100;200m"
         # valid color names
-        self.validcolornames = ("reset", "audit", "error", "warning", "output")
+        self.validcolornames = ("reset", "audithead", "audit", "error", "warning", "output")
     # checks if the given name is a valid color name
     def has (self, attr : str) -> bool:
         return (attr in self.validcolornames)
@@ -243,6 +236,8 @@ class InterPalette ():
     def __setitem__ (self, key, value):
         if (key == "reset"):
             self.reset = value
+        elif (key == "audithead"):
+            self.audithead = value
         elif (key == "audit"):
             self.audit = value
         elif (key == "error"):
@@ -258,7 +253,16 @@ ansire = re.compile("(\\\\x1b\[\d{2,2};\d{1,1};\d{1,3};\d{1,3};\d{1,3}m)|(\\\\x1
 # interprets code
 class Interpreter ():
     # initializes the interpreter
-    def __init__ (self, filename : str = "code"):
+    def __init__ (self, filename : str = "code", /, suppress : bool = False):
+        """
+        Interpreter (filename : str = "code", /, suppress : bool = False) -> Interpreter
+
+        filename - defaults to "code", specifies the file to read from, if the file extension .spp isn't in the filename it will be added automatically
+
+        suppress - defaults to False, keyword only argument, if set to true suppresses the automatic running of the interpreter
+
+        the interpreter class will take the filename given, read it then will evaluate the code unless automatic running is suppressed
+        """
         # maximum error code
         self.mec = 0
         # lines
@@ -266,7 +270,7 @@ class Interpreter ():
         # language keywords
         self.keywords = ("func", "if", "elif", "else", "for", "while", "in", "break", "continue", "python", "search", "switch", "return", "case", "default", "class", "global", "flag", "audit", "watch", "color", "dump", "existing")
         # system flags
-        self.flags = {"vars":False}
+        self.flags = {"vars":False, "tokens":False}
         # non modifier token types
         self.nonmod = (REF, NUL, INT, STR, PAR, DCT, LST, BOL, FLO, OBJ, KWD)
         # modifier token types
@@ -274,22 +278,15 @@ class Interpreter ():
         # tokens for debugging
         self.tokens = []
         # sets up variable scopes, top level scope is readonly constants and second scope is the program global scope, all other scopes are local scopes
-        self._scopes = NamespaceList({"true":Token(BOL, True), "false":Token(BOL, False), "void":Token(NUL, None)})
-        # sets scope auditing policy to only audit given variables
-        self._scopes.audit_state(1, 1)
+        self.scopes = NamespaceList({"true":Token(BOL, True), "false":Token(BOL, False), "void":Token(NUL, None)})
         # system color palette
         self.colors = InterPalette()
         # gets code
         self._getData(filename)
-        # runs the interpreter
-        self.run()
-    # property getter/setter for self.scopes
-    @property
-    def scopes (self) -> NamespaceList:
-        return self._scopes
-    @scopes.setter
-    def vars (self, value : NamespaceList) -> None:
-        self._scopes = value
+        # checks that run isn't suppressed
+        if (not suppress):
+            # runs the interpreter
+            self.run()
     # reads code from a file
     def _getData (self, filename : str) -> None:
         # opens the file
@@ -549,12 +546,8 @@ class Interpreter ():
                                     # gets rest of the code
                                     rest = line[i + len(keyword) + 1:]
                                     v = line[i + len(keyword) + 1:(rest.index("\n")+i+len(keyword)+1) if "\n" in rest else len(line)]
-                                    # checks that the argument is a valid variable name
-                                    if (self.deref(v, check=True)):
-                                        # adds audit token
-                                        tokens.append(Token("audit", v))
-                                    else:
-                                        print(f"{self.colors.output}{v}{self.colors.reset}", len(v))
+                                    # adds audit token
+                                    tokens.append(Token("audit", v))
                                     # increases i
                                     i += len(v) + 1
                                 i += len(keyword)
@@ -602,7 +595,7 @@ class Interpreter ():
                                 # increses i
                                 i = end
                                 # adds audit
-                                self._scopes.add_audit(v)
+                                self.scopes.add_audit(v)
                                 break
                             # executes python code
                             if (keyword == "python"):
@@ -694,11 +687,8 @@ class Interpreter ():
             # looks through all scopes
             for i in range(len(self.scopes)):
                 scope = self.scopes[i]
-                print(scope)
                 if (token in scope.keys()):
                     return True
-                else:
-                    print(scope.keys())
             return False
         # looks through all scopes
         for i in range(len(self.scopes)):
@@ -789,7 +779,7 @@ class Interpreter ():
     # gets the tokens that are part of a function
     def getfunc (self, tokens : list, start : int):
         # index
-        i = start+2
+        i = start+3
         # bracket depth
         depth = 1
         # args
@@ -824,8 +814,8 @@ class Interpreter ():
             i += 1
         # reset depth
         depth = 1
-        # increment i
-        i += 1
+        # increase i
+        i += 2
         # loop through tokens to find function body
         while i < len(tokens):
             # gets token
@@ -868,6 +858,8 @@ class Interpreter ():
             self._perr("OperationTypeError", "invalid type(s) for operation")
         elif (code == 6):
             self._perr("ZeroDivisionError", "cannot devide by zero")
+        elif (code == 7):
+            self._perr("AuditVarError", "tried to audit undefined variable")
     # evaluates tokens
     def evaltokens (self, tokens) -> None:
         # converts from strings to tokens if necessary
@@ -879,8 +871,11 @@ class Interpreter ():
         while tind < len(tokens):
             # gets token
             token = tokens[tind]
+            # error token
+            if (token.type == ERR):
+                raise Exception(token.value)
             # keyword tokens
-            if (token.type == KWD):
+            elif (token.type == KWD):
                 # python
                 if (token.value == "python"):
                     # next token is python code
@@ -902,13 +897,17 @@ class Interpreter ():
                         raise Exception(1)
                     # puts function into lowest namespace
                     self.scopes[-1][name], tind = self.getfunc(tokens, tind)
+                    # continues evaluating tokens
+                    continue
                 # audit
                 elif (token.value == "audit"):
                     # prints audit message
-                    print(tokens[tind:])
-                    print(f"{self.colors.audit}AUDIT:{self.colors.reset}")
+                    print(f"{self.colors.audithead}AUDIT:{self.colors.audit}")
                     # checks if the next token has type audit
                     if (len(tokens) > tind+1 and tokens[tind+1].type == "audit"):
+                        # checks that the argument is a valid variable name
+                        if (not self.deref(tokens[tind+1].value, check=True)):
+                            raise Exception(7)
                         # audits the variable
                         self._printvar(tokens[tind+1].value)
                         # increments tind
@@ -916,6 +915,7 @@ class Interpreter ():
                     else:
                         # audits the NamespaceList
                         self._printvars()
+                    print(self.colors.reset, end="")
                 # system color
                 elif (token.value == "color"):
                     # changes system color
@@ -936,8 +936,13 @@ class Interpreter ():
                     tind += 1
             # config token
             elif (token.type == CON):
-                # sets system flag
-                self.flags[token.value[0]] = {"on":True, "off":False, "switch":not self.flags[token.value[0]]}[token.value[1]]
+                if (token.value[0] in self.flags.keys()):
+                    # sets system flag
+                    self.flags[token.value[0]] = {"on":True, "off":False, "switch":not self.flags[token.value[0]]}[token.value[1]]
+                else:
+                    v = token.value[0]
+                    if (v == "audit"):
+                        self.scopes.audit = {"on":True, "off":False, "switch":not self.scopes.audit}[token.value[1]]
             # assignment token
             elif (token.type == ASS):
                 # checks assignment type
@@ -955,7 +960,7 @@ class Interpreter ():
                     tokens[tind] = Token(ASS, "=")
                     # continues evaluation
                     continue
-            # function
+            # function token
             elif (token.type == FUN):
                 pass
                 # self.runfun
@@ -1016,7 +1021,7 @@ class Interpreter ():
     # prints values of a variable name from all scopes
     def _printvar (self, vname : str) -> None:
         # sets auditing to true
-        self._scopes.auditing = True
+        self.scopes.auditing = True
         # loops over all scopes
         for i in range(len(self.scopes)):
             # gets scope
@@ -1024,31 +1029,31 @@ class Interpreter ():
             # checks that the variable is in the scope
             if (vname in scope.keys()):
                 # prints variable scope
-                print("globa scope:" if i == 1 else f"local scope ({i}):" if i > 1 else "constant scope:", end=" ")
+                print(self.colors.audithead, "globa scope:" if i == 1 else f"local scope ({i}):" if i > 1 else "constant scope:", self.colors.audit, end=" ")
                 # prints variable
                 print(f"{vname} = {scope[vname]}")
         # sets auditing to false
-        self._scopes.auditing = False
+        self.scopes.auditing = False
     # prints all variables
     def _printvars (self) -> None:
         # sets auditing to true
-        self._scopes.auditing = True
+        self.scopes.auditing = True
         # loops over all scopes
         for i in range(len(self.scopes)):
             # gets scope
             scope = self.scopes[i]
             # prints what scope it is
-            print("global scope:" if i == 1 else f"local scope ({i}):" if i > 1 else "constant scope:")
+            print(self.colors.audithead, "global scope:" if i == 1 else f"local scope ({i}):" if i > 1 else "constant scope:", self.colors.audit)
             # loops over scope keys
             for key in scope.keys():
                 # prints formatted variable mapping
                 print(f"\t{key} : {scope[key]}")
         # sets auditing to false
-        self._scopes.auditing = False
+        self.scopes.auditing = False
     # runs the interpreter
     def run (self) -> None:
         # sets maximum error code
-        self.mec = 6
+        self.mec = 7
         # error info
         errinfo = None
         try:
@@ -1068,10 +1073,16 @@ class Interpreter ():
         if (self.flags["vars"]):
             # prints all variables
             self._printvars()
+        # checks if the tokens flag is set
+        if (self.flags["tokens"]):
+            # prints all tokens
+            self._dumptokens()
         # checks if there was an error
         if (errinfo != None):
             # displays error message
             self.err(errinfo)
 
 # instansiates the interpreter
-inter = Interpreter()
+inter = Interpreter(suppress=True)
+
+inter.run()

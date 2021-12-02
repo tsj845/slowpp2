@@ -1,42 +1,19 @@
-dump tokens
-//"code(ing)"
-//is
-//fun
-python {
-    print({"x":"test"})
-    x = {"x":"y"}
-    print(x)
-}
-
-testing = "testing " * 2
-
-mult = 2
-
-flag vars on
-flag vars off
-
-watch test
-
-test = "x" + "y"
-
-color audit \x1b[38;2;0;255;0m
-
+color audithead green
+//color audithead \x1b[38;2;0;255;0m
+//color audit \x1b[38;2;0;255;0m
 color output \x1b[38;2;0;180;255m
 
-test = test
+flag audit on
 
-dump global
-dump space
+x = void
 
-existing test
-
-audit test
+test = "x" + "y"
 
 v = test + "y " * 2
 
 test = test + " 1"
 
-test += v
+//test += v
 
 func testf () {
     break
