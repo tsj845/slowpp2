@@ -870,120 +870,208 @@ class Interpreter ():
             self._perr("ZeroDivisionError", "cannot devide by zero")
     # evaluates tokens
     def evaltokens (self, tokens) -> None:
+        # converts from strings to tokens if necessary
         if (type(tokens) == str):
             tokens = self.tokenize(tokens)
-        print(self.colors.output, tokens.index(Token(KWD, "color")), self.colors.reset)
+        # token index
         tind = 0
+        # loops through tokens
         while tind < len(tokens):
+            # gets token
             token = tokens[tind]
+            # keyword tokens
             if (token.type == KWD):
+                # python
                 if (token.value == "python"):
+                    # next token is python code
                     if (tokens[tind+1].type == "python"):
+                        # evaluates python code
                         tokens[tind] = self.doPython({"code":tokens[tind+1].value})
                     else:
+                        # runs python function
                         tokens[tind] = self.pythonFunc(tokens[tind:])
+                    # pops the next token
                     tokens.pop(tind+1)
+                # function
                 elif (token.value == "func"):
+                    # gets function name
                     name = tokens[tind+1].value
+                    # checks name isn't same as a constant variable
                     if (name in self.scopes[0].keys()):
                         # assignment to constant
                         raise Exception(1)
+                    # puts function into lowest namespace
                     self.scopes[-1][name], tind = self.getfunc(tokens, tind)
+                # audit
                 elif (token.value == "audit"):
+                    # prints audit message
                     print(tokens[tind:])
                     print(f"{self.colors.audit}AUDIT:{self.colors.reset}")
+                    # checks if the next token has type audit
                     if (len(tokens) > tind+1 and tokens[tind+1].type == "audit"):
+                        # audits the variable
                         self._printvar(tokens[tind+1].value)
+                        # increments tind
                         tind += 1
                     else:
+                        # audits the NamespaceList
                         self._printvars()
+                # system color
                 elif (token.value == "color"):
+                    # changes system color
                     self.colors[tokens[tind+1].value] = tokens[tind+2].value
+                    # increases tind
                     tind += 2
+                # dump
                 elif (token.value == "dump"):
+                    # performs a dump
                     self._dump(tokens[tind+1].value)
+                    # increments tind
                     tind += 1
+                # existing
                 elif (token.value == "existing"):
+                    # checks that the given variable name exists
                     self._exists(tokens[tind+1].value)
+                    # increments tind
                     tind += 1
+            # config token
             elif (token.type == CON):
+                # sets system flag
                 self.flags[token.value[0]] = {"on":True, "off":False, "switch":not self.flags[token.value[0]]}[token.value[1]]
+            # assignment token
             elif (token.type == ASS):
+                # checks assignment type
                 if (token.value == "="):
+                    # checks that assignment is not being done to a constant variable
                     if (self.tokens[tind-1].value in self.scopes[0].keys()):
                         # assignment to constant
                         raise Exception(1)
+                    # sets variable and tind
                     self.scopes[-1][self.tokens[tind-1].value], tind = self.getexp(tokens, tind)
                 else:
+                    # expands assignment operator
                     tokens.insert(tind+1, Token(MAT, token.value[0]))
                     tokens.insert(tind+1, Token(REF, tokens[tind-1].value))
                     tokens[tind] = Token(ASS, "=")
+                    # continues evaluation
                     continue
+            # function
             elif (token.type == FUN):
                 pass
                 # self.runfun
+            # increments tind
             tind += 1
-    def _exists (self, name):
+    # checks if a variable exists
+    def _exists (self, name : str) -> None:
+        # does the check
         x = self.deref(name, check=True)
+        # formats message
         x = {True:"exists", False:"does not exist"}[x]
+        # prints message
         print(f"{self.colors.output}variable \"{name}\" {x}{self.colors.reset}")
-    def _dumptokens (self):
+    # dumps program tokens
+    def _dumptokens (self) -> None:
+        # start dump
         print(f"{self.colors.output}dumping tokens{self.colors.reset}")
+        # loop over tokens
         for token in self.tokens:
+            # print formatted token
             print(token.dump())
+        # end dump
         print(f"{self.colors.output}end dump{self.colors.reset}")
-    def _dumpspace (self):
+    # dumps the NamespaceList
+    def _dumpspace (self) -> None:
+        # start dump
         print(f"{self.colors.output}dumping namespaces:{self.colors.reset}")
+        # print NamespaceList
         print(self.scopes)
+        # end dump
         print(f"{self.colors.output}end dump{self.colors.reset}")
-    def _dump (self, scope):
+    # does a dump
+    def _dump (self, scope : str) -> None:
+        # if tokens are being dumped
         if (scope == "tokens"):
             self._dumptokens()
             return
+        # if NamespaceList is being dumped
         if (scope == "space"):
             self._dumpspace()
             return
+        # sets auditing to true
         self.scopes.auditing = True
+        # gets scope index
         index = 1 if scope == "global" else len(self.scopes) - 1 if scope == "local" else 0
+        # prints which scope is being dumped
         print(f"{self.colors.output}dumping {scope} scope:{self.colors.reset}")
+        # gets scope
         scope = self.scopes[index]
+        # loops over scope keys
         for key in scope.keys():
+            # prints key value pairs
             print(f"{key} : {scope[key]}")
+        # end dump
         print(f"{self.colors.output}end dump{self.colors.reset}")
+        # sets auditing to false
         self.scopes.auditing = False
-    def _printvar (self, vname):
+    # prints values of a variable name from all scopes
+    def _printvar (self, vname : str) -> None:
+        # sets auditing to true
         self._scopes.auditing = True
-        scopes = self.scopes[1:]
-        for i in range(len(scopes)):
-            scope = scopes[i]
+        # loops over all scopes
+        for i in range(len(self.scopes)):
+            # gets scope
+            scope = self.scopes[i]
+            # checks that the variable is in the scope
             if (vname in scope.keys()):
-                print("globa scope:" if i == 0 else f"local scope ({i}):", end=" ")
+                # prints variable scope
+                print("globa scope:" if i == 1 else f"local scope ({i}):" if i > 1 else "constant scope:", end=" ")
+                # prints variable
                 print(f"{vname} = {scope[vname]}")
+        # sets auditing to false
         self._scopes.auditing = False
-    def _printvars (self):
+    # prints all variables
+    def _printvars (self) -> None:
+        # sets auditing to true
         self._scopes.auditing = True
-        scopes = self.scopes[1:]
-        for i in range(len(scopes)):
-            scope = scopes[i]
-            print("global scope:" if i == 0 else f"local scope ({i}):")
+        # loops over all scopes
+        for i in range(len(self.scopes)):
+            # gets scope
+            scope = self.scopes[i]
+            # prints what scope it is
+            print("global scope:" if i == 1 else f"local scope ({i}):" if i > 1 else "constant scope:")
+            # loops over scope keys
             for key in scope.keys():
+                # prints formatted variable mapping
                 print(f"\t{key} : {scope[key]}")
+        # sets auditing to false
         self._scopes.auditing = False
-    def run (self):
+    # runs the interpreter
+    def run (self) -> None:
+        # sets maximum error code
         self.mec = 6
+        # error info
         errinfo = None
         try:
+            # runs program
             self.evaltokens(self.lines)
         except Exception:
+            # gets exception info
             info = sys.exc_info()
-            print(self.mec)
-            if (info[1].args[0] >= 0 and info[1].args[0] <= self.mec and info[0] == Exception):
+            # checks that exception argument is a valid error code
+            if (type(info[1].args[0]) == int and info[1].args[0] >= 0 and info[1].args[0] <= self.mec and info[0] == Exception):
+                # sets error info
                 errinfo = info[1].args[0]
             else:
+                # re-raises error
                 raise info[1]
+        # checks if the vars flag is set
         if (self.flags["vars"]):
+            # prints all variables
             self._printvars()
+        # checks if there was an error
         if (errinfo != None):
+            # displays error message
             self.err(errinfo)
 
+# instansiates the interpreter
 inter = Interpreter()
