@@ -3,20 +3,28 @@ color audithead green
 //color audit \x1b[38;2;0;255;0m
 color output \x1b[38;2;0;180;255m
 
-flag audit on
+flag audit off
 
-x = void
+//x = void
 
-test = "x" + "y"
+//test = "x" + "y"
 
-v = test + "y " * 2
+//v = test + "y " * 2
 
-test = test + " 1"
+//test = test + " 1"
 
 //test += v
 
-func testf () {
-    break
+func testf (a = false) {
+    return a
 }
+
+y = testf(true * 2)
+
+v = y + y
+
+true * 50
+
+dump tokens
 
 audit

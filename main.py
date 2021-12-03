@@ -67,7 +67,7 @@ class Token ():
         return f"({self.type}, {self._dumpval()})"
     # string representation of token
     def __repr__ (self) -> str:
-        return f"({self.type}, \"{self.value}\")"
+        return f"({self.type}, {self._dumpval()})"
     # token equality
     def __eq__ (self, comp) -> bool:
         # tests that the comparison is between tokens
@@ -156,6 +156,12 @@ class NamespaceList ():
 
             remove_audit (vname : str) -> None
             removes vname from list of variables to audit
+
+            new_scope () -> None
+            adds a new variable scope
+
+            remove_scope () -> None
+            removes the lowest level scope (can't remove global or constant scopes)
         """
         # whether an audit is occuring
         self.auditing = False
@@ -183,6 +189,13 @@ class NamespaceList ():
         if (vname in self.auditvars):
             # removes the name from self.auditvars
             self.auditvars.pop(self.auditvars.index(vname))
+    # adds a scope
+    def new_scope (self) -> None:
+        self.scopes.append(Namespace({}, self))
+    # removes a scope
+    def remove_scope (self) -> None:
+        if (len(self.scopes) > 2):
+            self.scopes.pop()
     # returns string representation of the list
     def __repr__ (self) -> str:
         # gets the string representation of all scopes and formats them nicely
@@ -274,7 +287,7 @@ class Interpreter ():
         # non modifier token types
         self.nonmod = (REF, NUL, INT, STR, PAR, DCT, LST, BOL, FLO, OBJ, KWD)
         # modifier token types
-        self.modtokens = (MAT,MAT)
+        self.modtokens = (MAT, LOG, EQU)
         # tokens for debugging
         self.tokens = []
         # sets up variable scopes, top level scope is readonly constants and second scope is the program global scope, all other scopes are local scopes
@@ -379,7 +392,7 @@ class Interpreter ():
             # checks for assignment
             elif (char == "="):
                 # checks for equality
-                if (i < len(line)-1 and line[i:i+1] == "=="):
+                if (len(line) > i and line[i:i+2] == "=="):
                     # adds equality token
                     tokens.append(Token(EQU, "=="))
                     # increases i
@@ -388,10 +401,17 @@ class Interpreter ():
                     continue
                 # adds assignment token
                 tokens.append(Token(ASS, char))
+            # checks for comparison
+            elif (char in "<>"):
+                v = char
+                if (len(line) > i and line[i+1] == "="):
+                    v += "="
+                    i += 1
+                tokens.append(Token(EQU, v))
             # checks for logical operators
-            elif (char in "!&|^<>"):
+            elif (char in "!&|^"):
                 # checks for equality
-                if (i < len(line)-1 and line[i+1] == "="):
+                if (i < len(line)-1 and line[i+1] == "=" and char not in "&|^"):
                     # adds equality token
                     tokens.append(Token(EQU, char+"="))
                     # increases i
@@ -482,7 +502,7 @@ class Interpreter ():
                         # increments s
                         s += 1
                 # increases i
-                i = s
+                i = s-1
                 # adds float token if decimal was used else adds integer token
                 tokens.append(Token(FLO if deciuse else INT, float(fin) if deciuse else int(fin)))
             else:
@@ -700,6 +720,25 @@ class Interpreter ():
                 return scope[token.value]
         # undefined variable name
         raise Exception(3)
+    # gets resulting token type
+    def _getttype (self, value) -> str:
+        r = ERR
+        t = type(value)
+        if (t == str):
+            r = STR
+        elif (t == int):
+            r = INT
+        elif (t == float):
+            r = FLO
+        elif (t == bool):
+            r = BOL
+        elif (t == None):
+            r = NUL
+        elif (t == list):
+            r = LST
+        elif (t == dict):
+            r = DCT
+        return r
     # does a mathmatical operation
     def domod (self, base : Token, op : Token, mod : Token) -> Token:
         # derefs the base and mod token if necessary
@@ -746,9 +785,43 @@ class Interpreter ():
         if (modstr):
             mod.value = '"' + mod.value + '"'
         # returns result
-        return Token(base.type, result)
+        return Token(self._getttype(result), result)
+    # collapses expressions
+    def _collapseexp (self, tokens : list, start : int) -> list:
+        tind = start
+        while tind < len(tokens):
+            token = tokens[tind]
+            if (token.type == REF and self.deref(token).type == FUN):
+                token = self.deref(token)
+                tokens[tind] = token
+                tokens, placeholder = self.runfunc(tokens, tind)
+                if (tokens[tind+1].type == REF):
+                    break
+            elif (token.type == LOG):
+                pass
+            elif (token.type == EQU):
+                if (tokens[tind-1].type == REF):
+                    tokens[tind-1] = self.deref(tokens[tind-1])
+                if (tokens[tind+1].type == REF):
+                    tokens[tind+1] = self.deref(tokens[tind+1])
+                if (token.value == "=="):
+                    res = tokens[tind-1] == tokens[tind+1]
+                elif (token.value == ">="):
+                    res = tokens[tind-1].value >= tokens[tind+1].value
+                elif (token.value == "<="):
+                    res = tokens[tind-1].value <= tokens[tind+1].value
+                elif (token.value == "!="):
+                    res = tokens[tind-1] != tokens[tind+1]
+                elif (token.value == ">"):
+                    res = tokens[tind-1].value > tokens[tind+1].value
+                elif (token.value == "<"):
+                    res = tokens[tind-1].value < tokens[tind+1].value
+                tokens[tind-1] = Token(BOL, res)
+            tind += 1
+        return tokens
     # gets the result of a mathmatical expression
     def getexp (self, tokens : list, start : int):
+        tokens = self._collapseexp(tokens, start)
         # starting index
         i = start+2
         # result
@@ -760,11 +833,13 @@ class Interpreter ():
         while i < len(tokens):
             # gets token
             token = tokens[i]
+            ret = None
             # if token type isn't a modifier exit loop
             if (token.type not in self.modtokens):
                 break
             # get value
-            ret = self.domod(result, token, tokens[i+1])
+            if (token.type == MAT):
+                ret = self.domod(result, token, tokens[i+1])
             # something went wrong, break out of loop
             if (ret == None):
                 break
@@ -800,6 +875,7 @@ class Interpreter ():
                     depth -= 1
                 # final closing parenthesis
                 if (depth == 0):
+                    args.append(tuple(build))
                     break
             # new argument
             elif (token.type == SEP):
@@ -839,6 +915,55 @@ class Interpreter ():
         result = Token(FUN, (tuple(args), tuple(ftoks)))
         # return result and new index
         return result, i
+    def _writevars (self, func : Token, args : list) -> None:
+        fargs = func.value[0]
+        for i in range(len(fargs)):
+            if (len(args) <= i):
+                if (Token(ASS, "=") in fargs[i]):
+                    arg = fargs[i][fargs[i].index(Token(ASS, "="))+1:]
+                else:
+                    # missing argument
+                    raise Exception(9)
+            else:
+                arg = args[i]
+            if (len(arg) == 0):
+                # empty argument
+                raise Exception(8)
+            self.scopes[-1][fargs[i][0].value] = self.evaltokens(list(arg))[0]
+    def runfunc (self, tokens : list, tind : int):
+        ftok = tokens[tind]
+        tind += 2
+        depth = 1
+        args = []
+        build = []
+        while tind < len(tokens):
+            token = tokens[tind]
+            build.append(token)
+            if (token.type == PAR):
+                if (token.value == "("):
+                    depth += 1
+                else:
+                    depth -= 1
+                if (depth == 0):
+                    tokens.pop(tind)
+                    build.pop()
+                    if (len(build) > 0):
+                        args.append(build)
+                    break
+            elif (token.type == SEP):
+                build.pop()
+                args.append(build)
+                build = []
+            tokens.pop(tind)
+        tokens.pop(tind-1)
+        self.scopes.new_scope()
+        self._writevars(ftok, args)
+        ret = self.evaltokens(list(ftok.value[1]))[0]
+        if (ret.type == REF):
+            ret = self.deref(ret)
+        tokens[tind-2] = ret
+        self.scopes.remove_scope()
+        return tokens, tind
     # prints an error message
     def _perr (self, type : str, value : str) -> None:
         print(f"{self.colors.error}{type}: {value}{self.colors.reset}")
@@ -860,6 +985,10 @@ class Interpreter ():
             self._perr("ZeroDivisionError", "cannot devide by zero")
         elif (code == 7):
             self._perr("AuditVarError", "tried to audit undefined variable")
+        elif (code == 8):
+            self._perr("EmptyFuncArgError", "function argument had no value")
+        elif (code == 9):
+            self._perr("MissingFuncArgError", "missing required function argument")
     # evaluates tokens
     def evaltokens (self, tokens) -> None:
         # converts from strings to tokens if necessary
@@ -869,6 +998,7 @@ class Interpreter ():
         tind = 0
         # loops through tokens
         while tind < len(tokens):
+            # print(tind)
             # gets token
             token = tokens[tind]
             # error token
@@ -925,7 +1055,7 @@ class Interpreter ():
                 # dump
                 elif (token.value == "dump"):
                     # performs a dump
-                    self._dump(tokens[tind+1].value)
+                    self._dump(tokens[tind+1].value, tokens)
                     # increments tind
                     tind += 1
                 # existing
@@ -934,6 +1064,9 @@ class Interpreter ():
                     self._exists(tokens[tind+1].value)
                     # increments tind
                     tind += 1
+                # return
+                elif (token.value == "return"):
+                    return tokens[tind+1:]
             # config token
             elif (token.type == CON):
                 if (token.value[0] in self.flags.keys()):
@@ -960,12 +1093,22 @@ class Interpreter ():
                     tokens[tind] = Token(ASS, "=")
                     # continues evaluation
                     continue
+            # mathmatical operator
+            elif (token.type == MAT):
+                ret, ni = self.getexp(tokens, tind-2)
+                for i in range((ni-tind)+1):
+                    tokens.pop(tind)
+                tokens[tind-1] = ret
             # function token
             elif (token.type == FUN):
-                pass
-                # self.runfun
+                tokens, placeholder = self.runfunc(tokens, tind)
+            # reference token
+            elif (token.type == REF and (len(tokens)-1 == tind or tokens[tind+1].type != ASS)):
+                tokens[tind] = self.deref(token)
+                continue
             # increments tind
             tind += 1
+        return tokens
     # checks if a variable exists
     def _exists (self, name : str) -> None:
         # does the check
@@ -975,11 +1118,11 @@ class Interpreter ():
         # prints message
         print(f"{self.colors.output}variable \"{name}\" {x}{self.colors.reset}")
     # dumps program tokens
-    def _dumptokens (self) -> None:
+    def _dumptokens (self, tokens : list) -> None:
         # start dump
         print(f"{self.colors.output}dumping tokens{self.colors.reset}")
         # loop over tokens
-        for token in self.tokens:
+        for token in tokens:
             # print formatted token
             print(token.dump())
         # end dump
@@ -993,10 +1136,10 @@ class Interpreter ():
         # end dump
         print(f"{self.colors.output}end dump{self.colors.reset}")
     # does a dump
-    def _dump (self, scope : str) -> None:
+    def _dump (self, scope : str, tokens : list = None) -> None:
         # if tokens are being dumped
         if (scope == "tokens"):
-            self._dumptokens()
+            self._dumptokens(tokens)
             return
         # if NamespaceList is being dumped
         if (scope == "space"):
@@ -1029,7 +1172,7 @@ class Interpreter ():
             # checks that the variable is in the scope
             if (vname in scope.keys()):
                 # prints variable scope
-                print(self.colors.audithead, "globa scope:" if i == 1 else f"local scope ({i}):" if i > 1 else "constant scope:", self.colors.audit, end=" ")
+                print(self.colors.audithead, "globa scope:" if i == 1 else f"local scope ({i-2}):" if i > 1 else "constant scope:", self.colors.audit, end=" ")
                 # prints variable
                 print(f"{vname} = {scope[vname]}")
         # sets auditing to false
@@ -1043,7 +1186,7 @@ class Interpreter ():
             # gets scope
             scope = self.scopes[i]
             # prints what scope it is
-            print(self.colors.audithead, "global scope:" if i == 1 else f"local scope ({i}):" if i > 1 else "constant scope:", self.colors.audit)
+            print(self.colors.audithead, "global scope:" if i == 1 else f"local scope ({i-2}):" if i > 1 else "constant scope:", self.colors.audit)
             # loops over scope keys
             for key in scope.keys():
                 # prints formatted variable mapping
@@ -1053,7 +1196,7 @@ class Interpreter ():
     # runs the interpreter
     def run (self) -> None:
         # sets maximum error code
-        self.mec = 7
+        self.mec = 9
         # error info
         errinfo = None
         try:
