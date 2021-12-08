@@ -283,7 +283,7 @@ class Interpreter ():
         # language keywords
         self.keywords = ("func", "if", "elif", "else", "for", "while", "in", "break", "continue", "python", "search", "switch", "return", "case", "default", "class", "global", "flag", "audit", "watch", "color", "dump", "existing")
         # system flags
-        self.flags = {"vars":False, "tokens":False}
+        self.flags = {"vars":False, "tokens":False, "error":False}
         # non modifier token types
         self.nonmod = (REF, NUL, INT, STR, PAR, DCT, LST, BOL, FLO, OBJ, KWD)
         # modifier token types
@@ -718,6 +718,7 @@ class Interpreter ():
             if (token.value in scope.keys()):
                 # returns the variable's value
                 return scope[token.value]
+        print(token, "INV DEREF")
         # undefined variable name
         raise Exception(3)
     # gets resulting token type
@@ -788,9 +789,11 @@ class Interpreter ():
         return Token(self._getttype(result), result)
     # collapses expressions
     def _collapseexp (self, tokens : list, start : int) -> list:
+        print(tokens, start, tokens[start])
         tind = start
         while tind < len(tokens):
             token = tokens[tind]
+            print(token)
             if (token.type == REF and self.deref(token).type == FUN):
                 token = self.deref(token)
                 tokens[tind] = token
@@ -798,7 +801,8 @@ class Interpreter ():
                 if (tokens[tind+1].type == REF):
                     break
             elif (token.type == LOG):
-                pass
+                if (token.value == "!"):
+                    pass
             elif (token.type == EQU):
                 if (tokens[tind-1].type == REF):
                     tokens[tind-1] = self.deref(tokens[tind-1])
@@ -817,11 +821,12 @@ class Interpreter ():
                 elif (token.value == "<"):
                     res = tokens[tind-1].value < tokens[tind+1].value
                 tokens[tind-1] = Token(BOL, res)
+                print(tokens)
             tind += 1
         return tokens
     # gets the result of a mathmatical expression
     def getexp (self, tokens : list, start : int):
-        tokens = self._collapseexp(tokens, start)
+        tokens = self._collapseexp(tokens, start+2)
         # starting index
         i = start+2
         # result
@@ -1099,6 +1104,7 @@ class Interpreter ():
                 for i in range((ni-tind)+1):
                     tokens.pop(tind)
                 tokens[tind-1] = ret
+                continue
             # function token
             elif (token.type == FUN):
                 tokens, placeholder = self.runfunc(tokens, tind)
@@ -1206,7 +1212,7 @@ class Interpreter ():
             # gets exception info
             info = sys.exc_info()
             # checks that exception argument is a valid error code
-            if (type(info[1].args[0]) == int and info[1].args[0] >= 0 and info[1].args[0] <= self.mec and info[0] == Exception):
+            if (type(info[1].args[0]) == int and info[1].args[0] >= 0 and info[1].args[0] <= self.mec and info[0] == Exception and not self.flags["error"]):
                 # sets error info
                 errinfo = info[1].args[0]
             else:

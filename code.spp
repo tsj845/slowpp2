@@ -1,3 +1,5 @@
+flag error on
+
 color audithead green
 //color audithead \x1b[38;2;0;255;0m
 //color audit \x1b[38;2;0;255;0m
@@ -22,6 +24,8 @@ func testf (a = false) {
 y = testf(true * 2)
 
 v = y + y
+
+x = false == true
 
 true * 50
 
