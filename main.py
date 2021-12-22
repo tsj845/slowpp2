@@ -4,7 +4,7 @@ import re
 import sys
 
 # token types
-ASS, MAT, LOG, INT, STR, BOL, FLO, LST, DCT, PAR, DOT, SEP, SYM, SLF, OBJ, NUL, KWD, EQU, FUN, REF, CON, ERR = "ASS", "MAT", "LOG", "INT", "STR", "BOL", "FLO", "LST", "DCT", "PAR", "DOT", "SEP", "SYM", "SLF", "OBJ", "NUL", "KWD", "EQU", "FUN", "REF", "CON", "ERR"
+ASS, MAT, LOG, INT, STR, BOL, FLO, LST, DCT, PAR, DOT, SEP, SYM, SLF, OBJ, NUL, KWD, EQU, FUN, REF, CON, ERR, ELI = "ASS", "MAT", "LOG", "INT", "STR", "BOL", "FLO", "LST", "DCT", "PAR", "DOT", "SEP", "SYM", "SLF", "OBJ", "NUL", "KWD", "EQU", "FUN", "REF", "CON", "ERR", "ELI"
 
 # stores token data
 class Token ():
@@ -290,8 +290,10 @@ class Interpreter ():
         self.modtokens = (MAT, LOG, EQU)
         # tokens for debugging
         self.tokens = []
+        # sets up builtin functions
+        self.builtins = {"true":Token(BOL, True), "false":Token(BOL, False), "void":Token(NUL, None),"print":Token(FUN, (((Token(ELI, "..."), Token(REF, "args")), (Token(REF, "sep"), Token(ASS, "="), Token(STR, " ")), (Token(REF, "end"), Token(ASS, "="), Token(STR, "\n"))), (Token(KWD, "python"), Token("python", "    print(*args, sep=sep, end=end)"))))}
         # sets up variable scopes, top level scope is readonly constants and second scope is the program global scope, all other scopes are local scopes
-        self.scopes = NamespaceList({"true":Token(BOL, True), "false":Token(BOL, False), "void":Token(NUL, None)})
+        self.scopes = NamespaceList(self.builtins)
         # system color palette
         self.colors = InterPalette()
         # gets code
